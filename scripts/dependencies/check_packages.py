@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
 
-""" This module will be used to check whether the common requirements 
+""" This module will be used to check whether the common requirements
     that we think the bulk of the example directories will need exist or not.
-  It will check the requirements from requirements files 
+  It will check the requirements from requirements files
   (scripts/dependencies/requirements.txt, ./requirements.txt and the ones specified).
-  It will prints the required dependencies that are not present 
+  It will prints the required dependencies that are not present
   and will exist with status 1 if all dependencies are not present.
 """
 
 import pkg_resources
 import argparse
 import sys
+import re
 import os
 from pkg_resources import DistributionNotFound, VersionConflict
 
 parser = argparse.ArgumentParser(description="Checks if all required packages"
-                                "are installed or not. Prints remaining required" 
-                                " dependencies and exists with status 1, if all "
-                                "packages are not present.",
+                                 "are installed or not. Prints remaining required"
+                                 " dependencies and exists with status 1, if all "
+                                 "packages are not present.",
                                  epilog="E.g.  " + sys.argv[0],
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--requirements_path', type=str, 
+parser.add_argument('--requirements_path', type=str,
                     action='append',
                     help='Path of the downloaded requirements file')
 
@@ -35,8 +36,10 @@ def gen_suggestion_str(dependencies_list):
     for pkg in dependencies_list:
         if pkg == "torch" or "torch>" in pkg or "torch=" in pkg:
             dependencies_list_special.append("torch")
-        elif pkg == "torchvision" or "torchvision>" in pkg or "torchvision=" in pkg: 
+        elif pkg == "torchvision" or "torchvision>" in pkg or "torchvision=" in pkg:
             dependencies_list_special.append("torchvision")
+        elif pkg == 'pycocotools':
+            dependencies_list_special.append("pycocotools")
         else:
             dependencies_list_normal.append(pkg)
 
@@ -45,12 +48,22 @@ def gen_suggestion_str(dependencies_list):
     # -- user mode: ~/.local/lib/pythonX.Y/site-packages
     # -- root mode: /usr/local/lib/pythonX.Y/site-packages
     if len(dependencies_list_normal) > 0:
-        suggestion += "pip3 install --user {0} \n".format(" ".join(dependencies_list_normal))
+        suggestion += "pip3 install --user {0} \n".format(
+            " ".join(dependencies_list_normal))
     for pkg in dependencies_list_special:
         if pkg == "torch":
-            suggestion += "pip3 install --user http://download.pytorch.org/whl/cu91/torch-0.4.0-cp35-cp35m-linux_x86_64.whl \n" 
+            suggestion += "pip3 install --user http://download.pytorch.org/whl/cu91/torch-0.4.0-cp35-cp35m-linux_x86_64.whl \n"
         if pkg == "torchvision":
             suggestion += "pip3 install --user torchvision \n"
+        if pkg == 'pycocotools':
+            suggestion += """git clone https://github.com/waleedka/coco.git \n
+            # this version fixes a small bug in python3 \n
+            cd coco/PythonAPI \n
+            # Install into global site-packages \n
+            make install \n
+            # Alternatively, if you do not have permissions or prefer \n
+            # not to install the COCO API into global site-packages \n
+            python3 setup.py install - -user"""
 
     return suggestion
 
@@ -62,11 +75,13 @@ if __name__ == '__main__':
     GLOBAL_REQUIREMENTS = "scripts/dependencies/requirements.txt"
     LOCAL_REQUIREMENTS = "requirements.txt"
     requirements_paths = []
-    requirements_paths.append(GLOBAL_REQUIREMENTS) # global requirements
+    requirements_paths.append(GLOBAL_REQUIREMENTS)  # global requirements
     if os.path.isfile(LOCAL_REQUIREMENTS):
-        requirements_paths.append(LOCAL_REQUIREMENTS) # local requirements, optional
+        # local requirements, optional
+        requirements_paths.append(LOCAL_REQUIREMENTS)
     if args.requirements_path is not None:
-        requirements_paths += args.requirements_path # other specified requirements, optional
+        # other specified requirements, optional
+        requirements_paths += args.requirements_path
     requirements_paths = list(set(requirements_paths))
 
     dependencies_list = []
@@ -90,14 +105,13 @@ if __name__ == '__main__':
         # dependencies_list = list(set(dependencies_list)) # Simple deduplication. No considering same package with different version requirements
         dependencies_str = " ".join(dependencies_list)
         print("{0}: Not all the required python packages are installed. \n".format(sys.argv[0])
-            + "Packages required: {0} \n".format(dependencies_str)
-            + "Please do as follows "
-            + "(from your experiment directory, e.g. egs/dbs2018/v1): \n")
+              + "Packages required: {0} \n".format(dependencies_str)
+              + "Please do as follows "
+              + "(from your experiment directory, e.g. egs/dbs2018/v1): \n")
 
         print(gen_suggestion_str(dependencies_list))
-        
-        print("If you have root access and would like to install " 
-            + "system-wide packages, just remove the \"--user\" option.")
-        
-        os._exit(1)
 
+        print("If you have root access and would like to install "
+              + "system-wide packages, just remove the \"--user\" option.")
+
+        os._exit(1)
