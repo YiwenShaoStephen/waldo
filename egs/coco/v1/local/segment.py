@@ -36,6 +36,8 @@ parser.add_argument('--model', type=str, default='model_best.pth.tar',
 parser.add_argument('--is-val', type=bool, default=True,
                     help='If true, test-ann should contain the ground truth of testset,'
                     'otherwise only test info (image id and size) is required')
+parser.add_argument('--limits', default=None, type=int,
+                    help="If given, is the size of subset we do segmenting on")
 parser.add_argument('--train-image-size', default=128, type=int,
                     help='The size of the parts of training images that we'
                     'train on (in order to form a fixed minibatch size).'
@@ -110,12 +112,20 @@ def main():
     else:
         print("=> no checkpoint found at '{}'".format(model_path))
 
-    class_nms = ['person', 'dog', 'skateboard']
+    class_nms_file = os.path.join(model_dir, 'configs/subclass.txt')
+    if os.path.exists(class_nms_file):
+        with open(class_nms_file, 'r') as fh:
+            class_nms = fh.readline().split()
+            print('Segmenting on {} classes: {}'.format(
+                len(class_nms), class_nms))
+    else:
+        class_nms = None
+        print('Segmenting on all classes.')
 
     if args.is_val:
         testset = COCODataset(args.test_img, args.test_ann, core_config,
                               args.train_image_size, is_val=args.is_val,
-                              class_nms=class_nms, limits=60,
+                              class_nms=class_nms, limits=args.limits,
                               job=args.job, num_jobs=args.num_jobs)
     else:
         testset = COCOTestset(args.test_img, args.test_ann, core_config)

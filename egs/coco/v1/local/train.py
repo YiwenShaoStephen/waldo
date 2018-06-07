@@ -116,7 +116,7 @@ def main():
 
     if args.class_name_file:
         with open(args.class_name_file, 'r') as fh:
-            class_nms = fh.readline()
+            class_nms = fh.readline().split()
             print('Training on {} classes: {}'.format(
                 len(class_nms), class_nms))
     else:

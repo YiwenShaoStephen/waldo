@@ -34,6 +34,7 @@ if [ $stage -le 2 ]; then
   $cmd JOB=1:$nj $logdir/segment.JOB.log local/segment.py \
        --test-img data/download/val2017 \
        --test-ann data/download/annotations/instances_val2017.json \
+       --limits 60 \
        --dir $dir/segment \
        --train-image-size 128 \
        --model model_best.pth.tar \

@@ -25,7 +25,15 @@ def main():
     args = parser.parse_args()
 
     cocoGt = COCO(args.val_ann)
-    class_nms = ['person', 'dog', 'skateboard']
+    class_nms = None
+    class_nms_file = os.path.join(args.segment_dir, '../configs/subclass.txt')
+    if os.path.exists(class_nms_file):
+        with open(class_nms_file, 'r') as fh:
+            class_nms = fh.readline().split()
+            print('Evaluating on {} classes: {}'.format(
+                len(class_nms), class_nms))
+    else:
+        print('Evaluating on all classes.')
     evaluate(cocoGt, args.segment_dir, class_nms, args.imgid)
 
 
@@ -45,12 +53,13 @@ def evaluate(coco, segment_dir, class_nms, imgid=None):
                 # imgId should be int instead of str
                 imgId = int(pkl_file.split('.')[0])
                 imgIds.append(imgId)
-    print('Evaluating on {} classes: {}'.format(len(class_nms), class_nms))
+
     print('Evaluating on {} images: {}'.format(len(imgIds), imgIds))
     coco_results = coco.loadRes(results)
     cocoEval = COCOeval(coco, coco_results, 'segm')
     cocoEval.params.imgIds = imgIds
-    cocoEval.params.catIds = coco.getCatIds(catNms=class_nms)
+    if class_nms:
+        cocoEval.params.catIds = coco.getCatIds(catNms=class_nms)
     cocoEval.evaluate()
     cocoEval.accumulate()
     cocoEval.summarize()
