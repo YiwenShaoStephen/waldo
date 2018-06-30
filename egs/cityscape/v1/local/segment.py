@@ -13,7 +13,8 @@ import pickle
 import random
 import numpy as np
 import scipy.misc
-from models.FCN import fcn16s
+from models.fcn import fcn_resnet, fcn_vgg16
+from models.Unet import UNet
 from waldo.segmenter import ObjectSegmenter, SegmenterOptions
 from skimage.transform import resize
 from waldo.core_config import CoreConfig
@@ -33,6 +34,8 @@ parser.add_argument('--dir', type=str, required=True,
 parser.add_argument('--segment', type=str, default='segment',
                     help='sub dir name under <args.dir> that segmentation results'
                     'will be stored to')
+parser.add_argument('--arch', default='fcn16s', type=str,
+                    help='model architecture')
 parser.add_argument('--model', type=str, default='model_best.pth.tar',
                     help='Name of the model file to use for segmenting.')
 parser.add_argument('--mode', type=str, default='val', choices=['val', 'oracle'],
@@ -118,7 +121,27 @@ def main():
 
     # load model
     if args.mode == 'val':
-        model = fcn16s(num_classes + num_offsets)
+        # model
+        valid_archs = ['fcn{}_resnet{}'.format(x, y)
+                       for x in [8, 16, 32] for y in [18, 34, 50, 101, 152]]
+        valid_archs += ['fcn{}_vgg16'.format(x) for x in [8, 16, 32]]
+        valid_archs += ['unet']
+        if args.arch not in valid_archs:
+            raise ValueError('Supported models are: {} \n'
+                             'but given {}'.format(valid_archs, args.arch))
+        if args.arch == 'unet':
+            model = UNet(num_classes, num_offsets)
+        elif 'vgg16' in args.arch:
+            names = args.arch.split('_')
+            scale = int(names[0][3:])
+            model = fcn_vgg16(num_classes + num_offsets,
+                              scale=scale)
+        elif 'resnet' in args.arch:
+            names = args.arch.split('_')
+            scale = int(names[0][3:])
+            layer = int(names[1][6:])
+            model = fcn_resnet(num_classes + num_offsets,
+                               scale=scale, layer=layer)
 
         model_path = os.path.join(args.dir, args.model)
         if os.path.isfile(model_path):
@@ -162,20 +185,26 @@ def segment(dataloader, segment_dir, model, core_config, catIds):
             continue
         if len(vals) == 3:  # 'val' mode, using model output to do segmentation
             with torch.no_grad():
-                # img_input = F.upsample(img, size=(args.train_image_size, args.train_image_size),
-                #                        mode='bilinear', align_corners=True)
-                output = model(img)
-                output = F.upsample(output, size=(args.seg_size, args.seg_size),
+                img_input = F.upsample(img,
+                                       size=(args.train_image_size,
+                                             args.train_image_size * 2),
+                                       mode='bilinear', align_corners=True)
+                output = model(img_input)
+                output = F.upsample(output, size=(args.seg_size, args.seg_size * 2),
                                     mode='bilinear', align_corners=True)
                 class_pred = output[:, :num_classes, :, :]
                 adj_pred = output[:, num_classes:, :, :]
         elif len(vals) == 5:  # 'oracle' mode, using ground truth label to do segmentation
             class_pred = vals[3]
             adj_pred = vals[4]
-            class_pred = F.upsample(class_pred, size=(args.seg_size, args.seg_size),
+            class_pred = F.upsample(class_pred, size=(args.seg_size, args.seg_size * 2),
                                     mode='bilinear', align_corners=True)
-            adj_pred = F.upsample(adj_pred, size=(args.seg_size, args.seg_size),
+            adj_pred = F.upsample(adj_pred, size=(args.seg_size, args.seg_size * 2),
                                   mode='bilinear', align_corners=True)
+            import torchvision
+            for i in range(10):
+                torchvision.utils.save_image(
+                    adj_pred[:, i:i + 1, :, :], '{}/bound_{}.png'.format(segment_dir, i))
 
         if args.object_merge_factor is None:
             args.object_merge_factor = 1.0 / len(offset_list)

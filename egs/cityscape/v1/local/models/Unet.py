@@ -219,9 +219,6 @@ class UNet(nn.Module):
             before_pool = encoder_outs[-(i + 2)]
             x = module(before_pool, x)
 
-        # No softmax is used. This means you need to use
-        # nn.CrossEntropyLoss or nn.BCEWithLogitsLoss is your training script,
-        # as this module includes a softmax or sigmoid already.
         x = self.conv_final(x)
         return x
 

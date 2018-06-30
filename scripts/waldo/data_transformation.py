@@ -5,6 +5,7 @@
 from waldo.data_types import *
 from PIL import Image
 import numpy as np
+from skimage.transform import resize
 
 
 def randomly_crop_combined_image(combined_image, config,
@@ -34,6 +35,21 @@ def randomly_crop_combined_image(combined_image, config,
     validate_combined_image(cropped_image, config)
 
     return cropped_image
+
+
+def resize_to_square_image(image, image_size, preserve_ar=True, order=1):
+    """ 
+    This function resizes an image (1d or 3d numpy array) to a square image (height=width)
+    with given size. 
+    If 'preserve_ar' is True, the aspect ratio of the original image will be kept
+    by zero-padding pixels equally at top and down (or left and right).
+    'order' is the order of the spline interpolation, default is 1.
+    """
+    if preserve_ar:
+        image = make_square_image_with_equal_padding(image)
+    image = resize(image, (image_size, image_size),
+                   preserve_range=True, order=order).astype(image.dtype)
+    return image
 
 
 def scale_down_image_with_objects(image_with_objects, config, max_size):
@@ -123,5 +139,45 @@ def make_square_image_with_padding(im_arr, num_colors, pad_value=0):
         else:
             im_arr_pad = np.pad(
                 im_arr, [(0, 0), (0, diff), (0, 0)], mode='constant', constant_values=pad_value)
+
+    return im_arr_pad
+
+
+def make_square_image_with_equal_padding(im_arr, pad_value=0):
+    """
+    This function pads an image to make it squre, if both height and width are
+    different, (Otherwise it leaves it the same size).
+    It returns the padded image; but note, if it does not have
+    to pad the image, it just returns the input variable
+    'image', it does not make a deep copy. Note: it pads equally on both sides.
+    """
+
+    dims = len(im_arr.shape)
+    height = int(im_arr.shape[0])
+    width = int(im_arr.shape[1])
+
+    if width == height:
+        return im_arr
+
+    if width > height:
+        diff = width - height
+        top = int(diff / 2)
+        bottom = diff - top
+        if dims == 2:
+            im_arr_pad = np.pad(
+                im_arr, [(top, bottom), (0, 0)], mode='constant', constant_values=pad_value)
+        else:
+            im_arr_pad = np.pad(
+                im_arr, [(top, bottom), (0, 0), (0, 0)], mode='constant', constant_values=pad_value)
+    else:
+        diff = height - width
+        left = int(diff / 2)
+        right = diff - left
+        if dims == 2:
+            im_arr_pad = np.pad(
+                im_arr, [(0, 0), (left, right)], mode='constant', constant_values=pad_value)
+        else:
+            im_arr_pad = np.pad(
+                im_arr, [(0, 0), (left, right), (0, 0)], mode='constant', constant_values=pad_value)
 
     return im_arr_pad

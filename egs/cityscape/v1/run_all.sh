@@ -17,30 +17,34 @@ local/check_dependencies.sh
 if [ $stage -le 0 ]; then
   local/prepare_data.sh
 fi
-
+exit 0
 
 epochs=120
 depth=5
-dir=exp/unet_${depth}_${epochs}_sgd
+dir=exp/fcn_vgg16_pretrain
 if [ $stage -le 1 ]; then
   # training
-  local/run_unet.sh --dir $dir --epochs $epochs --depth $depth
+  local/run_unet_all.sh --dir $dir --epochs $epochs --depth $depth
 fi
 
-segdir=$dir/segment
-logdir=$segdir/log
-nj=60
+segdir=segment_val
+logdir=$dir/$segdir/log
+nj=2
 if [ $stage -le 2 ]; then
-    echo "doing segmentation...."
-  $cmd JOB=1:$nj $logdir/segment.JOB.log local/segment.py \
-       --test-img data/download/val2017 \
-       --test-ann data/download/annotations/instances_val2017.json \
-       --limits 60 \
-       --dir $segdir \
-       --train-image-size 128 \
+  echo "doing segmentation...."
+    $cmd --mem 10G JOB=1:$nj $logdir/segment.JOB.log local/segment.py \
+       --limits 2 \
+       --train-image-size 256 \
+       --seg-size 128 \
        --model model_best.pth.tar \
-       --job JOB --num-jobs $nj
+       --mode val \
+       --segment $segdir \
+       --job JOB --num-jobs $nj \
+       --dir $dir \
+       --img data/download/val2017 \
+       --ann data/download/annotations/instances_val2017.json
 fi
+exit 0
 
 if [ $stage -le 3 ]; then
   echo "doing evaluation..."

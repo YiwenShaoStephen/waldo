@@ -16,6 +16,7 @@ import time
 import torchvision
 import random
 from models.Unet import UNet
+import torchvision.models as models
 from dataset import COCODataset
 from waldo.core_config import CoreConfig
 from unet_config import UnetConfig
@@ -61,9 +62,9 @@ parser.add_argument('--class-name-file', default=None, type=str,
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_false')
 parser.add_argument('--core-config', default='', type=str,
-                    help='path of core configuration file')
+                    help='path to core configuration file')
 parser.add_argument('--unet-config', default='', type=str,
-                    help='path of network configuration file')
+                    help='path to unet configuration file')
 
 
 best_loss = 1
@@ -71,8 +72,9 @@ random.seed(0)
 
 
 def main():
-    global args, best_loss
+    global args, best_loss, iterations
     args = parser.parse_args()
+    iterations = 4 * 4008
 
     if args.tensorboard:
         from tensorboard_logger import configure
@@ -124,7 +126,7 @@ def main():
         print('Training on all classes.')
 
     trainset = COCODataset(args.train_dir, args.train_ann, c_config,
-                           args.train_image_size, class_nms=class_nms, limits=args.limits)
+                           size=args.train_image_size, class_nms=class_nms, limits=args.limits)
     trainloader = torch.utils.data.DataLoader(
         trainset, num_workers=4, batch_size=args.batch_size, shuffle=True)
 
@@ -155,13 +157,15 @@ def main():
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
-            best_loss = checkpoint['best_loss']
+            best_loss = checkpoint['best_prec1']
             model.load_state_dict(checkpoint['state_dict'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
+    # define loss function
+    criterion = torch.nn.BCEWithLogitsLoss()
     # define optimizer
     # optimizer = t.optim.Adam(model.parameters(), lr=1e-3)
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
@@ -170,8 +174,8 @@ def main():
 
     # Train
     for epoch in range(args.start_epoch, args.epochs):
-        Train(trainloader, model, optimizer, epoch)
-        val_loss = Validate(valloader, model, epoch)
+        Train(trainloader, model, criterion, optimizer, epoch)
+        val_loss = Validate(valloader, model, criterion, epoch)
         is_best = val_loss < best_loss
         best_loss = min(val_loss, best_loss)
         save_checkpoint({
@@ -188,8 +192,9 @@ def main():
     sample(model, valloader, outdir, c_config)
 
 
-def Train(trainloader, model, optimizer, epoch):
+def Train(trainloader, model, criterion, optimizer, epoch):
     """Train for one epoch on the training set"""
+    global iterations
     losses = AverageMeter()
     batch_time = AverageMeter()
 
@@ -197,18 +202,13 @@ def Train(trainloader, model, optimizer, epoch):
     for i, (input, class_label, bound) in enumerate(trainloader):
         adjust_learning_rate(optimizer, epoch + 1)
         input = input.cuda()
-        bound = bound.cuda(async=True)
-        class_label = class_label.cuda(async=True)
+        target = torch.cat((class_label, bound), 1)
+        target = target.cuda(async=True)
+        output = model(input)
 
         optimizer.zero_grad()
-        output = model(input)
-        # class_pred = o[:, :num_classes, :, :]
-        # bound_pred = o[:, num_classes:, :, :]
-        # TODO. Treat class label and bound label equally by now
-        target = torch.cat((class_label, bound), 1)
-        loss_fn = torch.nn.BCELoss()
-        loss = loss_fn(output, target)
 
+        loss = criterion(output, target)
         losses.update(loss.item(), args.batch_size)
 
         loss.backward()
@@ -218,6 +218,8 @@ def Train(trainloader, model, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
+        iterations += 1
+
         if i % args.print_freq == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -225,13 +227,13 @@ def Train(trainloader, model, optimizer, epoch):
                       epoch, i, len(trainloader), batch_time=batch_time,
                       loss=losses))
 
-    # log to TensorBoard
-    if args.tensorboard:
-        from tensorboard_logger import log_value
-        log_value('train_loss', losses.avg, epoch)
+        # log to TensorBoard
+        if args.tensorboard and iterations % 1000 == 0:
+            from tensorboard_logger import log_value
+            log_value('train_loss', losses.avg, int(iterations / 1000))
 
 
-def Validate(validateloader, model, epoch):
+def Validate(validateloader, model, criterion, epoch):
     """Perform validation on the validation set"""
     losses = AverageMeter()
 
@@ -248,8 +250,7 @@ def Validate(validateloader, model, epoch):
 
             # TODO. Treat class label and bound label equally by now
             target = torch.cat((class_label, bound), 1)
-            loss_fn = torch.nn.BCELoss()
-            loss = loss_fn(output, target)
+            loss = criterion(output, target)
 
             losses.update(loss.item(), args.batch_size)
 
@@ -270,6 +271,7 @@ def sample(model, dataloader, outdir, core_config):
     """Visualize some predicted masks on training data to get a better intuition
        about the performance.
     """
+    model.eval()
     data_iter = iter(dataloader)
     img, classification, bound = data_iter.next()
     torchvision.utils.save_image(img, '{0}/raw.png'.format(outdir))
